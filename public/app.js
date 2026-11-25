@@ -4,13 +4,13 @@ import { CHAINS, DEFAULT_CHAIN, chainById } from './config.js'
 import { balanceOf, clients, deploy, read, write } from './contract.js'
 import { el } from './dom.js'
 import { loadContacts, loadContract, loadKey, saveContacts, saveContract, saveKey } from './storage.js'
-import { $, log, on, renderHeader, short } from './ui.js'
-import { connect, discoverInjected, switchChain } from './wallets.js'
+import { $, log, on, renderHeader, short, walletPicker } from './ui.js'
+import { connect, switchChain } from './wallets.js'
 
 // Esquema vem do <body data-scheme>: 'elgamal' (index.html) ou 'mlkem' (pq.html). Mesma UI, mesmo contrato.
 const scheme = await import(`./scheme-${document.body.dataset.scheme ?? 'elgamal'}.js`)
 
-const state = { providers: [], provider: null, address: null, chainId: null, balance: null, contract: null, key: null, registered: false, messages: [], users: [], contacts: loadContacts() }
+const state = { providers: [], provider: null, wanted: null, address: null, chainId: null, balance: null, contract: null, key: null, registered: false, messages: [], users: [], contacts: loadContacts() }
 
 const chain = () => chainById(state.chainId)
 const api = () => clients(state.provider, chain(), state.address)
@@ -134,11 +134,12 @@ async function refreshWallet() {
   await syncChainState()
 }
 
-// Carteira em rede desconhecida: leva para a rede escolhida no seletor (Sepolia por padrão).
-async function ensureSupportedChain() {
-  if (chain()) return
-  const target = chainById(Number($('chain').value)) ?? DEFAULT_CHAIN
-  log(`Rede ${state.chainId} não suportada, pedindo troca para ${target.name}…`)
+// Depois de conectar: vai para a rede escolhida no seletor; sem escolha, só sai de rede não suportada (→ Sepolia).
+async function ensureChain() {
+  const target = chainById(state.wanted) ?? (chain() ? null : DEFAULT_CHAIN)
+  state.wanted = null
+  if (!target || target.id === state.chainId) return
+  log(`Pedindo troca da rede ${state.chainId} para ${target.name}…`)
   await switchChain(state.provider, target)
   await refreshWallet()
 }
@@ -147,17 +148,32 @@ async function doConnect() {
   const picked = state.providers[Number($('injected').value)]
   if (!picked) throw new Error('Nenhuma carteira injetada encontrada (instale a MetaMask)')
   state.provider = picked.provider
+  log(`Conectando em ${picked.info.name}…`)
   picked.provider.on?.('chainChanged', () => refreshWallet().then(render))
   picked.provider.on?.('accountsChanged', () => refreshWallet().then(render))
   await refreshWallet()
-  await ensureSupportedChain()
+  await ensureChain()
 }
 
+// Seletor de rede: sem carteira, guarda a escolha para o Conectar; com carteira, troca na hora.
 async function pickChain() {
   const target = chainById(Number($('chain').value))
-  if (!target || !state.provider) return
+  if (!state.provider) { state.wanted = target?.id ?? null; return }
+  if (!target) return
   await switchChain(state.provider, target)
   await refreshWallet()
+}
+
+async function onChainPicked() {
+  const error = $('stepWallet').querySelector('.error')
+  error.textContent = ''
+  try {
+    await pickChain()
+  } catch (e) {
+    log(`ERRO ${e.shortMessage ?? e.message}`)
+    error.textContent = `✕ ${e.shortMessage ?? e.message}`
+  }
+  render()
 }
 
 // ---- contract ----
@@ -331,12 +347,9 @@ async function init() {
   chainSel.append(Object.assign(el('option', '', '—'), { value: '' }))
   for (const c of CHAINS) chainSel.append(Object.assign(el('option', '', c.name), { value: String(c.id) }))
   chainSel.value = String(DEFAULT_CHAIN.id)
-  chainSel.addEventListener('change', () => pickChain().then(render).catch((e) => log(`ERRO ${e.message}`)))
+  chainSel.addEventListener('change', onChainPicked)
 
-  state.providers = await discoverInjected()
-  const sel = $('injected')
-  state.providers.forEach((p, i) => sel.append(Object.assign(el('option', '', p.info.name), { value: String(i) })))
-  if (!state.providers.length) sel.append(el('option', '', 'nenhuma encontrada'))
+  state.providers = await walletPicker($('injected'))
 
   on('connect', doConnect, render)
   on('useContract', useContract, render)

@@ -1,6 +1,8 @@
 // Pedaços compartilhados pelas três páginas: header, tema, log e o wrapper de ação com feedback.
 import { el } from './dom.js'
 import { REPO } from './config.js'
+import { loadWallet, saveWallet } from './storage.js'
+import { discoverInjected } from './wallets.js'
 
 export const $ = (id) => document.getElementById(id)
 
@@ -57,4 +59,16 @@ export function copyButton(text) {
     setTimeout(() => { b.textContent = 'copiar' }, 1500)
   })
   return b
+}
+
+// Seletor de carteira compartilhado (App e Rede local): a escolha é lembrada entre as páginas.
+export async function walletPicker(select) {
+  const providers = await discoverInjected()
+  const idOf = (p) => p.info.rdns ?? p.info.name
+  providers.forEach((p, i) => select.append(Object.assign(el('option', '', p.info.name), { value: String(i) })))
+  if (!providers.length) select.append(el('option', '', 'nenhuma encontrada'))
+  const saved = providers.findIndex((p) => idOf(p) === loadWallet())
+  if (saved >= 0) select.value = String(saved)
+  select.addEventListener('change', () => saveWallet(idOf(providers[Number(select.value)])))
+  return providers
 }

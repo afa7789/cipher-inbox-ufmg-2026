@@ -24,3 +24,8 @@ export const saveKey = (scheme, chainId, address, key) => write(keyKey(scheme, c
 const CONTACTS = 'elgamal.contacts'
 export const loadContacts = () => read(CONTACTS) ?? []
 export const saveContacts = (list) => write(CONTACTS, list)
+
+// Carteira escolhida (rdns do EIP-6963): vale para todas as páginas.
+const WALLET = 'wallet'
+export const loadWallet = () => read(WALLET)
+export const saveWallet = (id) => write(WALLET, id)

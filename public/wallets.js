@@ -22,7 +22,7 @@ export async function connect(provider) {
   return { address: getAddress(account), chainId }
 }
 
-export function addChain(provider, chain) {
+function addChain(provider, chain) {
   return provider.request({
     method: 'wallet_addEthereumChain',
     params: [{
